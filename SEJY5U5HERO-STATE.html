@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>英雄卫国录：随机识字版</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=ZCOOL+XiaoWei&family=Noto+Serif+SC:wght@400;700&display=swap');
+
+        :root {
+            --vintage-paper: #F2E8CF;
+            --historical-gold: #BC6C25;
+            --deep-wood: #283618;
+            --ink-black: #1A1A1A;
+        }
+
+        body {
+            font-family: 'Noto Serif SC', serif;
+            background-color: #E7D7C1;
+            background-image: radial-gradient(#d4c3ab 1px, transparent 1px);
+            background-size: 20px 20px;
+            color: var(--ink-black);
+            user-select: none;
+        }
+
+        .historical-font {
+            font-family: 'ZCOOL+XiaoWei', serif;
+        }
+
+        .paper-texture {
+            background-color: var(--vintage-paper);
+            box-shadow: 
+                inset 0 0 50px rgba(188, 108, 37, 0.1),
+                0 10px 25px rgba(0,0,0,0.2);
+            border: 2px solid #D4A373;
+        }
+
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 600px;
+            margin: 0 auto;
+            height: 320px;
+        }
+
+        .card-historical {
+            transition: all 0.2s ease-out;
+            border: 2px solid #CDB4DB;
+            background: #FFF;
+            min-height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+        }
+
+        .card-active {
+            transform: scale(1.02);
+            border: 3px solid var(--historical-gold);
+            box-shadow: 0 0 15px rgba(188, 108, 37, 0.4);
+            background-color: #FEFAE0;
+            z-index: 10;
+        }
+
+        .card-matched {
+            background-color: var(--historical-gold) !important;
+            color: #FFF !important;
+            border-color: var(--deep-wood) !important;
+            cursor: default;
+            pointer-events: none;
+            opacity: 0.7;
+            transform: scale(0.95);
+        }
+
+        .card-error {
+            animation: shake 0.4s ease;
+            background-color: #E63946 !important;
+            color: white;
+            border-color: #900;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-8px); }
+            75% { transform: translateX(8px); }
+        }
+
+        .hero-banner {
+            background: linear-gradient(to bottom, #283618, #606C38);
+            border-bottom: 4px solid var(--historical-gold);
+        }
+
+        .fade-in-up {
+            animation: fadeInUp 0.5s ease backwards;
+        }
+
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- 
+    [SPA Implementation Plan]
+    1. UI: Historical parchment style with dual-column for Heroes & States.
+    2. Randomization: Uses Fisher-Yates algorithm for unbiased shuffling on every load/replay.
+    3. Multi-match Support: Specific handling for Sabah/Sarawak repeated states.
+    4. Feedback: Gold for success, Red for failure.
+    -->
+
+    <header class="hero-banner text-[#FEFAE0] py-8 px-6 text-center shadow-2xl">
+        <h1 class="text-4xl md:text-5xl historical-font mb-2 tracking-widest">马来亚英豪录</h1>
+        <p class="text-sm opacity-80 italic tracking-widest">—— 随机排序·识字挑战 ——</p>
+    </header>
+
+    <main class="flex-grow container mx-auto px-4 py-8 max-w-5xl">
+        
+        <!-- 初始界面 -->
+        <div id="introScreen" class="paper-texture rounded-xl p-10 text-center max-w-2xl mx-auto border-t-8 border-[#BC6C25]">
+            <h2 class="text-2xl font-bold mb-4">开启历史名录</h2>
+            <p class="text-gray-700 mb-8 leading-relaxed">
+                为了捍卫主权，英豪们在不同州属奋起反抗。<br>
+                <strong>请仔细阅读文字</strong>，将领袖与其捍卫的州属正确配对。
+            </p>
+            <button onclick="initGame()" class="bg-[#283618] hover:bg-[#606C38] text-[#FEFAE0] px-12 py-4 rounded-sm font-bold transition-all border-b-4 border-[#BC6C25] uppercase tracking-widest active:transform active:translate-y-1">
+                进入校场
+            </button>
+        </div>
+
+        <!-- 游戏竞技场 -->
+        <div id="gameArena" class="hidden space-y-8">
+            <div class="flex justify-between items-center bg-[#D4A373] bg-opacity-20 p-4 rounded-lg border border-[#BC6C25]">
+                <div class="text-lg font-bold">已收录英雄: <span id="matchCount" class="text-red-800">0</span> / 10</div>
+                <div id="hintText" class="text-sm text-gray-600 hidden md:block italic">点击左侧领袖，再选择右侧州属</div>
+                <div class="text-lg font-bold">历史声望: <span id="score" class="text-[#283618]">0</span></div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-16">
+                <!-- 领袖列 -->
+                <div class="space-y-4">
+                    <h3 class="historical-font text-2xl border-b-2 border-[#BC6C25] pb-2 text-[#283618] text-center">地方领袖 (Wira)</h3>
+                    <div id="heroList" class="grid grid-cols-1 gap-3"></div>
+                </div>
+
+                <!-- 州属列 -->
+                <div class="space-y-4">
+                    <h3 class="historical-font text-2xl border-b-2 border-[#BC6C25] pb-2 text-[#283618] text-center">捍卫州属 (Negeri)</h3>
+                    <div id="stateList" class="grid grid-cols-1 gap-3"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 战绩统计 -->
+        <div id="statsScreen" class="hidden paper-texture rounded-xl p-8 shadow-2xl">
+            <div class="text-center mb-10">
+                <h2 class="text-3xl font-bold historical-font text-[#283618]">抗争史实已收录</h2>
+                <div class="h-1 w-24 bg-[#BC6C25] mx-auto mt-2"></div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
+                <div class="space-y-6">
+                    <div class="p-6 border-l-4 border-[#283618] bg-white bg-opacity-50 rounded-r-lg">
+                        <p class="text-sm text-gray-500">识字精准度</p>
+                        <p id="accuracyResult" class="text-5xl font-bold text-[#BC6C25]">0%</p>
+                    </div>
+                    <div class="p-6 border-l-4 border-[#283618] bg-white bg-opacity-50 rounded-r-lg">
+                        <p class="text-sm text-gray-500">总博弈回合</p>
+                        <p id="turnResult" class="text-5xl font-bold text-[#283618]">0</p>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="summaryChart"></canvas>
+                </div>
+            </div>
+
+            <div class="mt-12 text-center flex flex-col md:flex-row justify-center gap-4">
+                <button onclick="resetAndPlayAgain()" class="bg-[#283618] text-white px-10 py-3 rounded-sm hover:bg-black transition-colors font-bold uppercase tracking-widest">
+                    再次挑战 (重新洗牌)
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <footer class="py-6 text-center text-[#283618] text-xs opacity-60 border-t border-[#BC6C25] mt-10">
+        <p>历史文献参考：五年级历史教材 | 强化识字训练版</p>
+    </footer>
+
+    <script>
+        const HERO_DATA = [
+            { id: 1, name: "督江谷 (Tok Janggut)", state: "吉兰丹 (Kelantan)" },
+            { id: 2, name: "哈芝阿都拉曼林梦", state: "登嘉楼 (Terengganu)" },
+            { id: 3, name: "拿督马哈拉惹里拉", state: "霹雳 (Perak)" },
+            { id: 4, name: "拿督巴哈曼", state: "彭亨 (Pahang)" },
+            { id: 5, name: "严端安达", state: "森美兰 (Negeri Sembilan)" },
+            { id: 6, name: "多赛益 (Dol Said)", state: "马六甲 (Melaka)" },
+            { id: 7, name: "末沙烈 (Mat Salleh)", state: "沙巴 (Sabah)" },
+            { id: 8, name: "安德农 (Antenom)", state: "沙巴 (Sabah)" },
+            { id: 9, name: "沙里夫马沙荷", state: "砂拉越 (Sarawak)" },
+            { id: 10, name: "仁答 (Rentap)", state: "砂拉越 (Sarawak)" }
+        ];
+
+        let selectedHero = null;
+        let selectedState = null;
+        let matchedCount = 0;
+        let score = 0;
+        let totalTurns = 0;
+
+        function shuffle(array) {
+            let currentIndex = array.length, randomIndex;
+            while (currentIndex != 0) {
+                randomIndex = Math.floor(Math.random() * currentIndex);
+                currentIndex--;
+                [array[currentIndex], array[randomIndex]] = [array[randomIndex], array[currentIndex]];
+            }
+            return array;
+        }
+
+        function initGame() {
+            document.getElementById('introScreen').classList.add('hidden');
+            document.getElementById('gameArena').classList.remove('hidden');
+            document.getElementById('statsScreen').classList.add('hidden');
+            
+            // 重置状态
+            matchedCount = 0;
+            score = 0;
+            totalTurns = 0;
+            updateUI();
+            
+            renderCards();
+        }
+
+        function renderCards() {
+            const heroList = document.getElementById('heroList');
+            const stateList = document.getElementById('stateList');
+            
+            heroList.innerHTML = '';
+            stateList.innerHTML = '';
+
+            // 深度洗牌：左右两边独立随机
+            const heroes = shuffle([...HERO_DATA]);
+            const states = shuffle(HERO_DATA.map(item => ({ id: item.id, state: item.state })));
+
+            heroes.forEach((h, index) => {
+                const card = document.createElement('div');
+                card.className = "card-historical p-4 rounded cursor-pointer shadow hover:shadow-lg font-bold text-center fade-in-up";
+                card.style.animationDelay = `${index * 0.05}s`;
+                card.innerText = h.name;
+                card.dataset.id = h.id;
+                card.onclick = () => selectHero(card);
+                heroList.appendChild(card);
+            });
+
+            states.forEach((s, index) => {
+                const card = document.createElement('div');
+                card.className = "card-historical p-4 rounded cursor-pointer shadow hover:shadow-lg font-bold text-center fade-in-up";
+                card.style.animationDelay = `${index * 0.05 + 0.2}s`;
+                card.innerText = s.state;
+                card.dataset.id = s.id;
+                card.onclick = () => selectState(card);
+                stateList.appendChild(card);
+            });
+        }
+
+        function selectHero(el) {
+            if (el.classList.contains('card-matched')) return;
+            document.querySelectorAll('#heroList .card-historical').forEach(c => c.classList.remove('card-active'));
+            el.classList.add('card-active');
+            selectedHero = el;
+            checkMatch();
+        }
+
+        function selectState(el) {
+            if (el.classList.contains('card-matched')) return;
+            document.querySelectorAll('#stateList .card-historical').forEach(c => c.classList.remove('card-active'));
+            el.classList.add('card-active');
+            selectedState = el;
+            checkMatch();
+        }
+
+        function checkMatch() {
+            if (!selectedHero || !selectedState) return;
+
+            totalTurns++;
+            const heroId = selectedHero.dataset.id;
+            const stateId = selectedState.dataset.id;
+
+            if (heroId === stateId) {
+                // 成功配对
+                const h = selectedHero;
+                const s = selectedState;
+                
+                h.classList.remove('card-active');
+                h.classList.add('card-matched');
+                s.classList.remove('card-active');
+                s.classList.add('card-matched');
+                
+                matchedCount++;
+                score += 100;
+                updateUI();
+                
+                selectedHero = null;
+                selectedState = null;
+
+                if (matchedCount === HERO_DATA.length) showStats();
+            } else {
+                // 配对失败
+                const h = selectedHero;
+                const s = selectedState;
+                h.classList.add('card-error');
+                s.classList.add('card-error');
+                
+                setTimeout(() => {
+                    h.classList.remove('card-error', 'card-active');
+                    s.classList.remove('card-error', 'card-active');
+                }, 500);
+                
+                score = Math.max(0, score - 20);
+                updateUI();
+                selectedHero = null;
+                selectedState = null;
+            }
+        }
+
+        function updateUI() {
+            document.getElementById('matchCount').innerText = matchedCount;
+            document.getElementById('score').innerText = score;
+        }
+
+        function showStats() {
+            setTimeout(() => {
+                document.getElementById('gameArena').classList.add('hidden');
+                document.getElementById('statsScreen').classList.remove('hidden');
+                
+                const accuracy = Math.round((HERO_DATA.length / totalTurns) * 100);
+                document.getElementById('accuracyResult').innerText = accuracy + "%";
+                document.getElementById('turnResult').innerText = totalTurns;
+                
+                renderSummaryChart();
+            }, 800);
+        }
+
+        function resetAndPlayAgain() {
+            initGame();
+        }
+
+        function renderSummaryChart() {
+            const ctx = document.getElementById('summaryChart').getContext('2d');
+            
+            const regions = {
+                '北/中马': 3, 
+                '南马': 3,    
+                '东马': 4 
+            };
+
+            new Chart(ctx, {
+                type: 'polarArea',
+                data: {
+                    labels: Object.keys(regions),
+                    datasets: [{
+                        data: Object.values(regions),
+                        backgroundColor: [
+                            'rgba(40, 54, 24, 0.7)',
+                            'rgba(188, 108, 37, 0.7)',
+                            'rgba(96, 108, 56, 0.7)'
+                        ],
+                        borderColor: '#283618',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom' }
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>
